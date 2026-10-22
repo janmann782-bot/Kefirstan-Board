@@ -379,7 +379,7 @@ class KefirInputService : InputMethodService() {
             listOf("7", "8", "9", "/", "(", ")"),
             listOf("4", "5", "6", "*", "x", "^"),
             listOf("1", "2", "3", "-", "sqrt(", "⌫"),
-            listOf("0", ".", "+", "=", "C", "Вставить")
+            listOf("0", ".", "+", "=", "Решить", "C", "Вставить")
         ).forEach { keys ->
             val row = line(root)
             keys.forEach { k ->
@@ -387,7 +387,7 @@ class KefirInputService : InputMethodService() {
                     when (k) {
                         "C" -> { mathText = ""; mathResult = MathEngine.Result("", emptyList()) }
                         "⌫" -> mathText = mathText.dropLast(1)
-                        "=" -> mathResult = MathEngine.solve(mathText)
+                        "Решить" -> mathResult = MathEngine.solve(mathText)
                         "Вставить" -> {
                             if (mathResult.answer.isNotEmpty() && mathResult.answer != "Ошибка")
                                 currentInputConnection?.commitText(mathResult.answer, 1)
