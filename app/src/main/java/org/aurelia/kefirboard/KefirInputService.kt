@@ -29,6 +29,9 @@ class KefirInputService : InputMethodService() {
     private lateinit var root: LinearLayout
     private var pane = "keys"
     private var shifted = false
+    private var symbols = false
+    private var capsLocked = false
+    private var lastShiftTouch = 0L
     private var privateField = false
     private var wikiQuery = ""
     private var mathText = ""
@@ -68,6 +71,9 @@ class KefirInputService : InputMethodService() {
             (klass == InputType.TYPE_CLASS_NUMBER &&
                 variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD)
         shifted = false
+        capsLocked = false
+        symbols = false
+        pane = "keys"
         if (::root.isInitialized) render()
     }
 
@@ -79,7 +85,7 @@ class KefirInputService : InputMethodService() {
     override fun onCreateInputView(): View {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(3), dp(5), dp(3), dp(6))
+            setPadding(dp(5), dp(5), dp(5), dp(6))
         }
         render()
         return root
@@ -94,20 +100,26 @@ class KefirInputService : InputMethodService() {
         clips.add(text)
     }
 
-    private fun button(label: String, flex: Float = 1f, action: () -> Unit): TextView {
-        return TextView(this).apply {
+    private fun button(label: String, flex: Float = 1f, action: () -> Unit): TextView =
+        TextView(this).apply {
             text = label
-            textSize = if (label.length > 9) 12f else 18f
+            textSize = when {
+                label.length > 13 -> 11f
+                label.length > 7 -> 12f
+                else -> 16f
+            }
             gravity = Gravity.CENTER
+            includeFontPadding = false
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
             setTextColor(fg())
-            background = ThemeUtil.shape(this@KefirInputService, keyBg(), ThemeUtil.border(prefs.dark))
+            background = ThemeUtil.keyState(this@KefirInputService, prefs.dark)
             setOnClickListener { action() }
             layoutParams = LinearLayout.LayoutParams(0, dp(prefs.keyHeight), flex).apply {
                 val margin = dp(prefs.keyGap)
                 setMargins(margin, margin, margin, margin)
             }
         }
-    }
 
     private fun line(parent: LinearLayout, height: Int? = null): LinearLayout {
         val row = LinearLayout(this).apply {
@@ -123,49 +135,74 @@ class KefirInputService : InputMethodService() {
     }
 
     private fun toolbar() {
-        val scroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val barScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isFillViewport = true
+        }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(2), 0, dp(2), dp(3))
+            gravity = Gravity.CENTER
+            setPadding(dp(1), 0, dp(1), dp(5))
         }
-        fun item(label: String, next: String, action: (() -> Unit)? = null) {
-            val box = TextView(this).apply {
-                text = label
-                textSize = 16f
+        fun item(symbol: String, caption: String, tab: String, action: (() -> Unit)? = null) {
+            val active = pane == tab && action == null
+            val group = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                setTextColor(if (pane == next) 0xFF17251B.toInt() else fg())
-                background = ThemeUtil.shape(this@KefirInputService,
-                    if (pane == next) ThemeUtil.ACCENT else keyBg(), ThemeUtil.border(prefs.dark))
-                layoutParams = LinearLayout.LayoutParams(dp(62), dp(38)).apply {
+                background = ThemeUtil.shape(
+                    this@KefirInputService,
+                    if (active) ThemeUtil.ACCENT else ThemeUtil.panel(prefs.dark),
+                    ThemeUtil.border(prefs.dark), 11
+                )
+                layoutParams = LinearLayout.LayoutParams(dp(48), dp(44)).apply {
                     setMargins(dp(2), 0, dp(2), 0)
                 }
+                contentDescription = caption
                 setOnClickListener {
-                    if (action != null) action() else { pane = next; render() }
+                    if (action != null) action()
+                    else { pane = tab; render() }
                 }
             }
-            bar.addView(box)
+            group.addView(TextView(this).apply {
+                text = symbol
+                textSize = 19f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                setTextColor(if (active) 0xFF17251B.toInt() else fg())
+            }, LinearLayout.LayoutParams(-1, dp(26)))
+            group.addView(TextView(this).apply {
+                text = caption
+                textSize = 9f
+                gravity = Gravity.CENTER
+                maxLines = 1
+                includeFontPadding = false
+                setTextColor(if (active) 0xFF17251B.toInt() else ThemeUtil.muted(prefs.dark))
+            }, LinearLayout.LayoutParams(-1, dp(13)))
+            bar.addView(group)
         }
-        item("⌨ Буквы", "keys")
-        item("▣ Буфер", "clips")
-        item("▤ Вики", "wiki")
-        item("∑", "math")
-        item("⚗ Химия", "chem")
-        item("⚙", "settings") {
+        item("⌨", "Буквы", "keys")
+        item("▣", "Буфер", "clips")
+        item("▤", "Вики", "wiki")
+        item("∑", "Матем.", "math")
+        item("⚗", "Химия", "chem")
+        item("⚙", "Опции", "settings") {
             startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
-        item(if (prefs.ru) "RU" else "EN", "keys") {
+        item(if (prefs.ru) "RU" else "EN", "Язык", "lang") {
             prefs.ru = !prefs.ru
+            shifted = false
             pane = "keys"
             render()
         }
-        scroll.addView(bar)
-        root.addView(scroll)
+        barScroll.addView(bar)
+        root.addView(barScroll)
     }
 
     private fun render() {
         if (!::root.isInitialized) return
         root.removeAllViews()
-        root.setBackgroundColor(bg())
+        root.background = ThemeUtil.shape(this, bg(), ThemeUtil.border(prefs.dark), 16)
         toolbar()
         when (pane) {
             "keys" -> keyboard(root)
@@ -179,36 +216,60 @@ class KefirInputService : InputMethodService() {
 
     private fun keyboard(parent: LinearLayout, wikiTyping: Boolean = false) {
         if (!wikiTyping && prefs.suggestions && !privateField) {
-            suggestionStrip = line(parent, 34)
+            suggestionStrip = line(parent, 35)
             updateSuggestions()
         } else suggestionStrip = null
-        line(parent).also { row ->
-            "1234567890".forEach { digit -> row.addView(touchKey(digit.toString(), digit.toString(), wikiTyping)) }
-        }
-        val rows = if (prefs.ru)
+
+        val keys = if (symbols) {
+            listOf("@#€%&-+()/", "*\\:;!?\u0027\"[]", "<>^={}\\$~|")
+        } else if (prefs.ru) {
             listOf("йцукенгшщзхъ", "фывапролджэ", "ячсмитьбю")
-        else listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
-        rows.forEachIndexed { index, letters ->
-            val row = line(parent)
-            if (index == 2) row.addView(touchKey("⇧", "SHIFT", wikiTyping, 1.3f))
-            letters.forEach { ch ->
-                val value = if (shifted) ch.uppercase() else ch.toString()
-                row.addView(touchKey(value, value, wikiTyping))
+        } else {
+            listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
+        }
+        // The permanent number row is deliberately shorter than letter keys.
+        line(parent).also { row ->
+            for (digit in "1234567890") {
+                val key = touchKey(digit.toString(), digit.toString(), wikiTyping)
+                key.layoutParams = LinearLayout.LayoutParams(0, dp(31), 1f).apply {
+                    val g = dp(prefs.keyGap)
+                    setMargins(g, g, g, g)
+                }
+                key.textSize = 14f
+                row.addView(key)
             }
-            if (index == 2) row.addView(touchKey("⌫", "BACK", wikiTyping, 1.3f))
+        }
+        keys.forEachIndexed { index, letters ->
+            val row = line(parent)
+            if (index == 2) {
+                row.addView(touchKey(if (symbols) "ABC" else "⇧", if (symbols) "SYMBOL" else "SHIFT", wikiTyping, 1.35f))
+            }
+            for (ch in letters) {
+                val code = if (symbols) ch.toString() else {
+                    if (shifted || capsLocked) ch.uppercase() else ch.toString()
+                }
+                val label = if (symbols) ch.toString() else ch.uppercase()
+                row.addView(touchKey(label, code, wikiTyping, 1f))
+            }
+            if (index == 2) row.addView(touchKey("⌫", "BACK", wikiTyping, 1.35f))
         }
         line(parent).also { row ->
-            row.addView(touchKey(",", ",", wikiTyping))
-            row.addView(touchKey("☺", "EMOJI", wikiTyping))
-            row.addView(touchKey(if (prefs.ru) "Русский" else "English", "SPACE", wikiTyping, 4f))
-            row.addView(touchKey(".", ".", wikiTyping))
-            row.addView(touchKey("↵", "ENTER", wikiTyping, 1.4f))
+            row.addView(touchKey(if (symbols) "ABC" else "?123", "SYMBOL", wikiTyping, 1.35f))
+            row.addView(touchKey(",", ",", wikiTyping, .7f))
+            row.addView(touchKey("☺", "EMOJI", wikiTyping, .8f))
+            row.addView(touchKey(if (prefs.ru) "Русский" else "English", "SPACE", wikiTyping, 4.4f))
+            row.addView(touchKey(".", ".", wikiTyping, .7f))
+            row.addView(touchKey("↵", "ENTER", wikiTyping, 1.2f))
         }
     }
 
     private fun touchKey(label: String, code: String, wikiTyping: Boolean, flex: Float = 1f): TextView {
         val key = button(label, flex) {}
-        if (code == "SHIFT" && shifted) key.background = ThemeUtil.shape(this, ThemeUtil.ACCENT)
+        if ((code == "SHIFT" && (shifted || capsLocked)) || code == "ENTER") {
+            key.background = ThemeUtil.shape(this, ThemeUtil.ACCENT, ThemeUtil.border(prefs.dark), 9)
+            key.setTextColor(0xFF17251B.toInt())
+        }
+        if (code == "SPACE") key.textSize = 13f
         var firstX = 0f
         var firstY = 0f
         var started = 0L
@@ -220,6 +281,7 @@ class KefirInputService : InputMethodService() {
                     firstX = e.x; firstY = e.y
                     started = SystemClock.uptimeMillis()
                     previousSteps = 0; movedCursor = false
+                    key.isPressed = true
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -236,6 +298,7 @@ class KefirInputService : InputMethodService() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    key.isPressed = false
                     val dx = e.x - firstX
                     val dy = e.y - firstY
                     val elapsed = SystemClock.uptimeMillis() - started
@@ -250,7 +313,7 @@ class KefirInputService : InputMethodService() {
                     }
                     true
                 }
-                MotionEvent.ACTION_CANCEL -> true
+                MotionEvent.ACTION_CANCEL -> { key.isPressed = false; true }
                 else -> true
             }
         }
@@ -258,13 +321,25 @@ class KefirInputService : InputMethodService() {
     }
 
     private fun process(code: String, wikiTyping: Boolean) {
-        if (code == "SHIFT") { shifted = !shifted; render(); return }
+        if (code == "SHIFT") {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastShiftTouch < 420L) {
+                capsLocked = !capsLocked
+                shifted = capsLocked
+            } else {
+                shifted = !shifted
+                if (capsLocked) capsLocked = false
+            }
+            lastShiftTouch = now
+            render()
+            return
+        }
+        if (code == "SYMBOL") { symbols = !symbols; render(); return }
         if (wikiTyping) {
             wikiQuery = when (code) {
                 "BACK" -> wikiQuery.dropLast(1)
                 "SPACE" -> wikiQuery + " "
-                "ENTER" -> wikiQuery
-                "EMOJI" -> wikiQuery
+                "ENTER", "EMOJI" -> wikiQuery
                 else -> wikiQuery + code
             }
             wikiPanelReopen()
@@ -278,7 +353,10 @@ class KefirInputService : InputMethodService() {
                 currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
             }
             "EMOJI" -> currentInputConnection?.commitText("🙂", 1)
-            else -> currentInputConnection?.commitText(code, 1)
+            else -> {
+                currentInputConnection?.commitText(code, 1)
+                if (shifted && !capsLocked) { shifted = false; render() }
+            }
         }
         updateSuggestions()
     }
@@ -299,23 +377,33 @@ class KefirInputService : InputMethodService() {
     private fun updateSuggestions() {
         val bar = suggestionStrip ?: return
         bar.removeAllViews()
-        val preceding = currentInputConnection?.getTextBeforeCursor(50, 0)?.toString() ?: ""
-        val prefix = Regex("""[\p{L}]{2,}$""").find(preceding)?.value ?: ""
-        val matches = wiki.suggest(prefix, 3)
-        if (matches.isEmpty()) {
-            bar.addView(TextView(this).apply {
-                text = if (wiki.isReady()) "  KefirBoard  •  Офлайн" else "  Индексация вики Аурелии..."
-                textSize = 12f; setTextColor(ThemeUtil.muted(prefs.dark))
-            })
-        } else matches.forEach { title ->
-            val box = button(title, 1f) {
-                currentInputConnection?.deleteSurroundingText(prefix.length, 0)
-                currentInputConnection?.commitText(title, 1)
-                updateSuggestions()
+        val previous = currentInputConnection?.getTextBeforeCursor(60, 0)?.toString() ?: ""
+        val prefix = Regex("""[\p{L}]{3,}$""").find(previous)?.value ?: ""
+        val results = if (prefix.length >= 3) wiki.suggest(prefix, 4) else emptyList()
+        // Only show suggestions grounded in the offline wiki. Never invent a completion.
+        val terms = results.filter { it.length <= 24 && it.startsWith(prefix, ignoreCase = true) }.take(3)
+        if (terms.isEmpty()) {
+            val hint = TextView(this).apply {
+                text = if (wiki.isReady()) "KefirBoard  ·  офлайн" else "Индексируем вики Аурелии"
+                textSize = 12f
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), 0, 0, 0)
+                setTextColor(ThemeUtil.muted(prefs.dark))
             }
-            box.textSize = 11f
-            box.layoutParams = LinearLayout.LayoutParams(0, dp(31), 1f)
-            bar.addView(box)
+            bar.addView(hint, LinearLayout.LayoutParams(-1, dp(32)))
+        } else {
+            for (word in terms) {
+                val chip = button(word, 1f) {
+                    currentInputConnection?.deleteSurroundingText(prefix.length, 0)
+                    currentInputConnection?.commitText(word, 1)
+                    updateSuggestions()
+                }
+                chip.textSize = 12f
+                chip.layoutParams = LinearLayout.LayoutParams(0, dp(30), 1f).apply {
+                    val g = dp(3); setMargins(g, 0, g, 0)
+                }
+                bar.addView(chip)
+            }
         }
     }
 
@@ -455,7 +543,23 @@ class KefirInputService : InputMethodService() {
                             chemistryInput = ""
                             chemistryResult = ChemistryEngine.Result("", emptyList())
                         }
-                        "Уравнять" -> chemistryResult = ChemistryEngine.balance(chemistryInput)
+                        "Уравнять" -> {
+                            chemistryResult = if (chemistryInput.contains("→") ||
+                                chemistryInput.contains("->") || chemistryInput.contains("=")) {
+                                ChemistryEngine.balance(chemistryInput)
+                            } else try {
+                                val parts = ChemistryEngine.parseFormula(chemistryInput)
+                                ChemistryEngine.Result(
+                                    ChemistryEngine.prettyFormula(chemistryInput),
+                                    listOf("Атомы: " + parts.entries.joinToString(", ") {
+                                        it.key + " = " + it.value
+                                    }, "Для баланса добавьте реагенты и стрелку →")
+                                )
+                            } catch (e: Exception) {
+                                ChemistryEngine.Result("Ошибка",
+                                    listOf(e.message ?: "Проверьте формулу"), error = true)
+                            }
+                        }
                         "Вставить" -> {
                             val toInsert = if (!chemistryResult.error && chemistryResult.result.isNotBlank())
                                 chemistryResult.result else chemistryInput
@@ -468,7 +572,11 @@ class KefirInputService : InputMethodService() {
                     }
                     render()
                 }
-                btn.textSize = if (token.length > 4) 11f else 17f
+                btn.textSize = if (token.length > 4) 11f else 16f
+                btn.layoutParams = LinearLayout.LayoutParams(0, dp(39), span).apply {
+                    val g = dp(2)
+                    setMargins(g, g, g, g)
+                }
                 if (token == "Уравнять") {
                     btn.background = ThemeUtil.shape(this, ThemeUtil.ACCENT)
                     btn.setTextColor(0xFF17251B.toInt())
@@ -479,35 +587,85 @@ class KefirInputService : InputMethodService() {
     }
 
     private fun mathPanel() {
-        root.addView(headline("Калькулятор • офлайн"))
-        root.addView(headline(mathText.ifBlank { "Введите выражение" }))
-        if (mathResult.answer.isNotEmpty()) {
-            root.addView(headline(mathResult.answer))
-            mathResult.steps.take(4).forEach { step ->
-                root.addView(TextView(this).apply { text = step; textSize = 12f; setTextColor(fg()) })
-            }
+        root.addView(headline("∑  Калькулятор  ·  офлайн"))
+        val inputDisplay = TextView(this).apply {
+            text = mathText.ifBlank { "Введите выражение или уравнение" }
+            textSize = 18f
+            maxLines = 2
+            setTextColor(if (mathText.isBlank()) ThemeUtil.muted(prefs.dark) else fg())
+            background = ThemeUtil.shape(this@KefirInputService, ThemeUtil.panel(prefs.dark),
+                ThemeUtil.border(prefs.dark), 12)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
         }
+        root.addView(inputDisplay, LinearLayout.LayoutParams(-1, -2).apply {
+            setMargins(dp(4), dp(2), dp(4), dp(4))
+        })
+        val resultArea = ScrollView(this).apply { isFillViewport = false }
+        val detail = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), 0, dp(8), 0)
+        }
+        if (mathResult.answer.isNotEmpty()) {
+            detail.addView(TextView(this).apply {
+                text = mathResult.answer
+                textSize = 18f
+                setTextColor(if (mathResult.answer == "Ошибка") 0xFFFF9C8D.toInt() else ThemeUtil.ACCENT)
+            })
+            mathResult.steps.forEach { step ->
+                detail.addView(TextView(this).apply {
+                    text = step
+                    textSize = 12f
+                    setTextColor(fg())
+                })
+            }
+        } else detail.addView(TextView(this).apply {
+            text = "Нажмите «=» для вычисления. Пошаговый ответ прокручивается."
+            textSize = 11f
+            setTextColor(ThemeUtil.muted(prefs.dark))
+        })
+        resultArea.addView(detail)
+        root.addView(resultArea, LinearLayout.LayoutParams(-1, dp(70)))
+
         listOf(
-            listOf("7", "8", "9", "/", "(", ")"),
-            listOf("4", "5", "6", "*", "x", "^"),
-            listOf("1", "2", "3", "-", "sqrt(", "⌫"),
-            listOf("0", ".", "+", "=", "Решить", "C", "Вставить")
+            listOf("7", "8", "9", "÷", "(", ")"),
+            listOf("4", "5", "6", "×", "x", "^"),
+            listOf("1", "2", "3", "−", "√(", "⌫"),
+            listOf("0", ".", "+", "=", "✓", "C", "↵")
         ).forEach { keys ->
             val row = line(root)
             keys.forEach { k ->
-                row.addView(button(k, if (k == "Вставить") 2.1f else 1f) {
+                val button = button(k, 1f) {
                     when (k) {
-                        "C" -> { mathText = ""; mathResult = MathEngine.Result("", emptyList()) }
-                        "⌫" -> mathText = mathText.dropLast(1)
-                        "Решить" -> mathResult = MathEngine.solve(mathText)
-                        "Вставить" -> {
-                            if (mathResult.answer.isNotEmpty() && mathResult.answer != "Ошибка")
-                                currentInputConnection?.commitText(mathResult.answer, 1)
+                        "C" -> {
+                            mathText = ""
+                            mathResult = MathEngine.Result("", emptyList())
                         }
+                        "⌫" -> mathText = mathText.dropLast(1)
+                        "✓" -> mathResult = MathEngine.solve(mathText)
+                        "↵" -> {
+                            if (mathResult.answer.isNotBlank() && mathResult.answer != "Ошибка") {
+                                currentInputConnection?.commitText(mathResult.answer, 1)
+                            }
+                        }
+                        "√(" -> mathText += "sqrt("
+                        "−" -> mathText += "-"
                         else -> mathText += k
                     }
+                    if (k !in listOf("✓", "↵")) {
+                        mathResult = MathEngine.Result("", emptyList())
+                    }
                     render()
-                }.apply { textSize = 13f })
+                }
+                button.layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+                    val g = dp(2)
+                    setMargins(g, g, g, g)
+                }
+                button.textSize = 15f
+                if (k == "✓") {
+                    button.background = ThemeUtil.shape(this, ThemeUtil.ACCENT, ThemeUtil.border(prefs.dark))
+                    button.setTextColor(0xFF17251B.toInt())
+                }
+                row.addView(button)
             }
         }
     }
