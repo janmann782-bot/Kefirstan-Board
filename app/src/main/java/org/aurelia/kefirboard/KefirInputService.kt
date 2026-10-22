@@ -543,7 +543,23 @@ class KefirInputService : InputMethodService() {
                             chemistryInput = ""
                             chemistryResult = ChemistryEngine.Result("", emptyList())
                         }
-                        "Уравнять" -> chemistryResult = ChemistryEngine.balance(chemistryInput)
+                        "Уравнять" -> {
+                            chemistryResult = if (chemistryInput.contains("→") ||
+                                chemistryInput.contains("->") || chemistryInput.contains("=")) {
+                                ChemistryEngine.balance(chemistryInput)
+                            } else try {
+                                val parts = ChemistryEngine.parseFormula(chemistryInput)
+                                ChemistryEngine.Result(
+                                    ChemistryEngine.prettyFormula(chemistryInput),
+                                    listOf("Атомы: " + parts.entries.joinToString(", ") {
+                                        it.key + " = " + it.value
+                                    }, "Для баланса добавьте реагенты и стрелку →")
+                                )
+                            } catch (e: Exception) {
+                                ChemistryEngine.Result("Ошибка",
+                                    listOf(e.message ?: "Проверьте формулу"), error = true)
+                            }
+                        }
                         "Вставить" -> {
                             val toInsert = if (!chemistryResult.error && chemistryResult.result.isNotBlank())
                                 chemistryResult.result else chemistryInput
@@ -556,7 +572,11 @@ class KefirInputService : InputMethodService() {
                     }
                     render()
                 }
-                btn.textSize = if (token.length > 4) 11f else 17f
+                btn.textSize = if (token.length > 4) 11f else 16f
+                btn.layoutParams = LinearLayout.LayoutParams(0, dp(39), span).apply {
+                    val g = dp(2)
+                    setMargins(g, g, g, g)
+                }
                 if (token == "Уравнять") {
                     btn.background = ThemeUtil.shape(this, ThemeUtil.ACCENT)
                     btn.setTextColor(0xFF17251B.toInt())
