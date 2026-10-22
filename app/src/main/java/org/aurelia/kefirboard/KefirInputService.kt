@@ -281,6 +281,7 @@ class KefirInputService : InputMethodService() {
                     firstX = e.x; firstY = e.y
                     started = SystemClock.uptimeMillis()
                     previousSteps = 0; movedCursor = false
+                    key.isPressed = true
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -297,6 +298,7 @@ class KefirInputService : InputMethodService() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    key.isPressed = false
                     val dx = e.x - firstX
                     val dy = e.y - firstY
                     val elapsed = SystemClock.uptimeMillis() - started
@@ -311,7 +313,7 @@ class KefirInputService : InputMethodService() {
                     }
                     true
                 }
-                MotionEvent.ACTION_CANCEL -> true
+                MotionEvent.ACTION_CANCEL -> { key.isPressed = false; true }
                 else -> true
             }
         }
@@ -376,7 +378,7 @@ class KefirInputService : InputMethodService() {
         val bar = suggestionStrip ?: return
         bar.removeAllViews()
         val previous = currentInputConnection?.getTextBeforeCursor(60, 0)?.toString() ?: ""
-        val prefix = Regex("""[\\p{L}]{3,}$""").find(previous)?.value ?: ""
+        val prefix = Regex("""[\p{L}]{3,}$""").find(previous)?.value ?: ""
         val results = if (prefix.length >= 3) wiki.suggest(prefix, 4) else emptyList()
         // Only show suggestions grounded in the offline wiki. Never invent a completion.
         val terms = results.filter { it.length <= 24 && it.startsWith(prefix, ignoreCase = true) }.take(3)
@@ -565,35 +567,85 @@ class KefirInputService : InputMethodService() {
     }
 
     private fun mathPanel() {
-        root.addView(headline("Калькулятор • офлайн"))
-        root.addView(headline(mathText.ifBlank { "Введите выражение" }))
-        if (mathResult.answer.isNotEmpty()) {
-            root.addView(headline(mathResult.answer))
-            mathResult.steps.take(4).forEach { step ->
-                root.addView(TextView(this).apply { text = step; textSize = 12f; setTextColor(fg()) })
-            }
+        root.addView(headline("∑  Калькулятор  ·  офлайн"))
+        val inputDisplay = TextView(this).apply {
+            text = mathText.ifBlank { "Введите выражение или уравнение" }
+            textSize = 18f
+            maxLines = 2
+            setTextColor(if (mathText.isBlank()) ThemeUtil.muted(prefs.dark) else fg())
+            background = ThemeUtil.shape(this@KefirInputService, ThemeUtil.panel(prefs.dark),
+                ThemeUtil.border(prefs.dark), 12)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
         }
+        root.addView(inputDisplay, LinearLayout.LayoutParams(-1, -2).apply {
+            setMargins(dp(4), dp(2), dp(4), dp(4))
+        })
+        val resultArea = ScrollView(this).apply { isFillViewport = false }
+        val detail = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), 0, dp(8), 0)
+        }
+        if (mathResult.answer.isNotEmpty()) {
+            detail.addView(TextView(this).apply {
+                text = mathResult.answer
+                textSize = 18f
+                setTextColor(if (mathResult.answer == "Ошибка") 0xFFFF9C8D.toInt() else ThemeUtil.ACCENT)
+            })
+            mathResult.steps.forEach { step ->
+                detail.addView(TextView(this).apply {
+                    text = step
+                    textSize = 12f
+                    setTextColor(fg())
+                })
+            }
+        } else detail.addView(TextView(this).apply {
+            text = "Нажмите «=» для вычисления. Пошаговый ответ прокручивается."
+            textSize = 11f
+            setTextColor(ThemeUtil.muted(prefs.dark))
+        })
+        resultArea.addView(detail)
+        root.addView(resultArea, LinearLayout.LayoutParams(-1, dp(70)))
+
         listOf(
-            listOf("7", "8", "9", "/", "(", ")"),
-            listOf("4", "5", "6", "*", "x", "^"),
-            listOf("1", "2", "3", "-", "sqrt(", "⌫"),
-            listOf("0", ".", "+", "=", "Решить", "C", "Вставить")
+            listOf("7", "8", "9", "÷", "(", ")"),
+            listOf("4", "5", "6", "×", "x", "^"),
+            listOf("1", "2", "3", "−", "√(", "⌫"),
+            listOf("0", ".", "+", "=", "C", "↵")
         ).forEach { keys ->
             val row = line(root)
             keys.forEach { k ->
-                row.addView(button(k, if (k == "Вставить") 2.1f else 1f) {
+                val button = button(k, 1f) {
                     when (k) {
-                        "C" -> { mathText = ""; mathResult = MathEngine.Result("", emptyList()) }
-                        "⌫" -> mathText = mathText.dropLast(1)
-                        "Решить" -> mathResult = MathEngine.solve(mathText)
-                        "Вставить" -> {
-                            if (mathResult.answer.isNotEmpty() && mathResult.answer != "Ошибка")
-                                currentInputConnection?.commitText(mathResult.answer, 1)
+                        "C" -> {
+                            mathText = ""
+                            mathResult = MathEngine.Result("", emptyList())
                         }
+                        "⌫" -> mathText = mathText.dropLast(1)
+                        "=" -> mathResult = MathEngine.solve(mathText)
+                        "↵" -> {
+                            if (mathResult.answer.isNotBlank() && mathResult.answer != "Ошибка") {
+                                currentInputConnection?.commitText(mathResult.answer, 1)
+                            }
+                        }
+                        "√(" -> mathText += "sqrt("
+                        "−" -> mathText += "-"
                         else -> mathText += k
                     }
+                    if (k !in listOf("=", "↵")) {
+                        mathResult = MathEngine.Result("", emptyList())
+                    }
                     render()
-                }.apply { textSize = 13f })
+                }
+                button.layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+                    val g = dp(2)
+                    setMargins(g, g, g, g)
+                }
+                button.textSize = 15f
+                if (k == "=") {
+                    button.background = ThemeUtil.shape(this, ThemeUtil.ACCENT, ThemeUtil.border(prefs.dark))
+                    button.setTextColor(0xFF17251B.toInt())
+                }
+                row.addView(button)
             }
         }
     }
