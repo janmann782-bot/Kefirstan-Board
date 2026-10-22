@@ -610,7 +610,7 @@ class KefirInputService : InputMethodService() {
             listOf("7", "8", "9", "÷", "(", ")"),
             listOf("4", "5", "6", "×", "x", "^"),
             listOf("1", "2", "3", "−", "√(", "⌫"),
-            listOf("0", ".", "+", "=", "C", "↵")
+            listOf("0", ".", "+", "=", "✓", "C", "↵")
         ).forEach { keys ->
             val row = line(root)
             keys.forEach { k ->
@@ -621,7 +621,7 @@ class KefirInputService : InputMethodService() {
                             mathResult = MathEngine.Result("", emptyList())
                         }
                         "⌫" -> mathText = mathText.dropLast(1)
-                        "=" -> mathResult = MathEngine.solve(mathText)
+                        "✓" -> mathResult = MathEngine.solve(mathText)
                         "↵" -> {
                             if (mathResult.answer.isNotBlank() && mathResult.answer != "Ошибка") {
                                 currentInputConnection?.commitText(mathResult.answer, 1)
@@ -631,7 +631,7 @@ class KefirInputService : InputMethodService() {
                         "−" -> mathText += "-"
                         else -> mathText += k
                     }
-                    if (k !in listOf("=", "↵")) {
+                    if (k !in listOf("✓", "↵")) {
                         mathResult = MathEngine.Result("", emptyList())
                     }
                     render()
@@ -641,7 +641,7 @@ class KefirInputService : InputMethodService() {
                     setMargins(g, g, g, g)
                 }
                 button.textSize = 15f
-                if (k == "=") {
+                if (k == "✓") {
                     button.background = ThemeUtil.shape(this, ThemeUtil.ACCENT, ThemeUtil.border(prefs.dark))
                     button.setTextColor(0xFF17251B.toInt())
                 }
