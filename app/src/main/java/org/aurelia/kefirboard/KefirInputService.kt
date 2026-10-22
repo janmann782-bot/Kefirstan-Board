@@ -138,7 +138,7 @@ class KefirInputService : InputMethodService() {
         val barScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
-            fillViewport = true
+            isFillViewport = true
         }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
