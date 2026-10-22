@@ -2,6 +2,7 @@ package org.aurelia.kefirboard
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
 
 object ThemeUtil {
@@ -14,6 +15,13 @@ object ThemeUtil {
     fun key(dark: Boolean) = if (dark) Color.rgb(40, 47, 46) else Color.rgb(244, 247, 246)
     fun foreground(dark: Boolean) = if (dark) Color.WHITE else Color.rgb(26, 31, 30)
     fun muted(dark: Boolean) = if (dark) Color.rgb(168, 179, 176) else Color.rgb(89, 102, 98)
+    fun keyState(context: Context, dark: Boolean): StateListDrawable =
+        StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed),
+                shape(context, ACCENT, border(dark), 9))
+            addState(intArrayOf(), shape(context, key(dark), border(dark), 9))
+        }
+
     fun shape(context: Context, fill: Int, border: Int = Color.rgb(55, 72, 68), radius: Int = 9): GradientDrawable =
         GradientDrawable().apply {
             setColor(fill)
