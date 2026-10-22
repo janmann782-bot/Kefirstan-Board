@@ -32,6 +32,8 @@ class KefirInputService : InputMethodService() {
     private var privateField = false
     private var wikiQuery = ""
     private var mathText = ""
+    private var chemistryInput = ""
+    private var chemistryResult = ChemistryEngine.Result("", emptyList())
     private var mathResult = MathEngine.Result("", emptyList())
     private var suggestionStrip: LinearLayout? = null
     private val clipboard by lazy { getSystemService(CLIPBOARD_SERVICE) as ClipboardManager }
@@ -98,7 +100,7 @@ class KefirInputService : InputMethodService() {
             textSize = if (label.length > 9) 12f else 18f
             gravity = Gravity.CENTER
             setTextColor(fg())
-            background = ThemeUtil.shape(this@KefirInputService, keyBg())
+            background = ThemeUtil.shape(this@KefirInputService, keyBg(), ThemeUtil.border(prefs.dark))
             setOnClickListener { action() }
             layoutParams = LinearLayout.LayoutParams(0, dp(prefs.keyHeight), flex).apply {
                 val margin = dp(prefs.keyGap)
@@ -133,7 +135,7 @@ class KefirInputService : InputMethodService() {
                 gravity = Gravity.CENTER
                 setTextColor(if (pane == next) 0xFF17251B.toInt() else fg())
                 background = ThemeUtil.shape(this@KefirInputService,
-                    if (pane == next) ThemeUtil.ACCENT else keyBg())
+                    if (pane == next) ThemeUtil.ACCENT else keyBg(), ThemeUtil.border(prefs.dark))
                 layoutParams = LinearLayout.LayoutParams(dp(62), dp(38)).apply {
                     setMargins(dp(2), 0, dp(2), 0)
                 }
@@ -143,10 +145,11 @@ class KefirInputService : InputMethodService() {
             }
             bar.addView(box)
         }
-        item("АБВ", "keys")
+        item("⌨ Буквы", "keys")
         item("▣ Буфер", "clips")
-        item("⌕ Вики", "wiki")
+        item("▤ Вики", "wiki")
         item("∑", "math")
+        item("⚗ Химия", "chem")
         item("⚙", "settings") {
             startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
@@ -169,6 +172,7 @@ class KefirInputService : InputMethodService() {
             "clips" -> clipboardPanel()
             "wiki" -> wikiPanel()
             "math" -> mathPanel()
+            "chem" -> chemistryPanel()
             else -> { pane = "keys"; keyboard(root) }
         }
     }
@@ -364,6 +368,114 @@ class KefirInputService : InputMethodService() {
         scroll.addView(result)
         root.addView(scroll, LinearLayout.LayoutParams(-1, dp(130)))
         keyboard(root, wikiTyping = true)
+    }
+
+
+    /** Chemistry input is a separate offline panel, not a network function. */
+    private fun chemistryPanel() {
+        root.addView(headline("⚗ Химия • офлайн"))
+        val subheading = TextView(this).apply {
+            text = "Формулы, нижние индексы, заряды и уравнивание реакций"
+            textSize = 12f
+            setTextColor(ThemeUtil.muted(prefs.dark))
+            setPadding(dp(8), 0, 0, dp(5))
+        }
+        root.addView(subheading)
+
+        val exampleScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val examples = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf("H₂O", "CO₂", "NaCl", "H₂SO₄", "CH₄", "H₂ + O₂ → H₂O").forEach { sample ->
+            val b = TextView(this).apply {
+                text = sample
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setPadding(dp(14), 0, dp(14), 0)
+                setTextColor(fg())
+                background = ThemeUtil.shape(this@KefirInputService, keyBg(), ThemeUtil.border(prefs.dark))
+                layoutParams = LinearLayout.LayoutParams(-2, dp(36)).apply {
+                    setMargins(dp(3), 0, dp(3), 0)
+                }
+                setOnClickListener {
+                    chemistryInput = sample
+                    chemistryResult = ChemistryEngine.Result("", emptyList())
+                    render()
+                }
+            }
+            examples.addView(b)
+        }
+        exampleScroll.addView(examples)
+        root.addView(exampleScroll)
+        val input = TextView(this).apply {
+            text = chemistryInput.ifBlank { "H₂ + O₂ → H₂O" }
+            setTextColor(if (chemistryInput.isEmpty()) ThemeUtil.muted(prefs.dark) else fg())
+            textSize = 19f
+            minHeight = dp(44)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            background = ThemeUtil.shape(this@KefirInputService, ThemeUtil.panel(prefs.dark), ThemeUtil.border(prefs.dark), 12)
+        }
+        root.addView(input, LinearLayout.LayoutParams(-1, -2).apply {
+            setMargins(dp(3), dp(7), dp(3), dp(3))
+        })
+        if (chemistryResult.result.isNotBlank()) {
+            root.addView(TextView(this).apply {
+                text = chemistryResult.result
+                textSize = 16f
+                setTextColor(if (chemistryResult.error) 0xFFFF9C8D.toInt() else ThemeUtil.ACCENT)
+                setPadding(dp(10), dp(2), dp(10), dp(3))
+            })
+            chemistryResult.steps.take(2).forEach { step ->
+                root.addView(TextView(this).apply {
+                    text = "• " + step
+                    textSize = 11f
+                    setTextColor(ThemeUtil.muted(prefs.dark))
+                    setPadding(dp(10), 0, dp(10), 0)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+            }
+        }
+        val layouts = listOf(
+            listOf("H", "C", "N", "O", "Na", "Cl", "Fe", "Ca"),
+            listOf("₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇"),
+            listOf("₈", "₉", "⁺", "⁻", "²⁺", "→", "⇌", "+"),
+            listOf("(", ")", "⌫", "Очистить", "Уравнять", "Вставить")
+        )
+        layouts.forEach { items ->
+            val line = line(root)
+            items.forEach { token ->
+                val span = when (token) {
+                    "Очистить", "Уравнять", "Вставить" -> 1.9f
+                    else -> 1f
+                }
+                val btn = button(token, span) {
+                    when (token) {
+                        "⌫" -> chemistryInput = chemistryInput.dropLast(1)
+                        "Очистить" -> {
+                            chemistryInput = ""
+                            chemistryResult = ChemistryEngine.Result("", emptyList())
+                        }
+                        "Уравнять" -> chemistryResult = ChemistryEngine.balance(chemistryInput)
+                        "Вставить" -> {
+                            val toInsert = if (!chemistryResult.error && chemistryResult.result.isNotBlank())
+                                chemistryResult.result else chemistryInput
+                            if (toInsert.isNotBlank()) currentInputConnection?.commitText(toInsert, 1)
+                        }
+                        else -> chemistryInput += token
+                    }
+                    if (token !in listOf("Уравнять", "Вставить")) {
+                        chemistryResult = ChemistryEngine.Result("", emptyList())
+                    }
+                    render()
+                }
+                btn.textSize = if (token.length > 4) 11f else 17f
+                if (token == "Уравнять") {
+                    btn.background = ThemeUtil.shape(this, ThemeUtil.ACCENT)
+                    btn.setTextColor(0xFF17251B.toInt())
+                }
+                line.addView(btn)
+            }
+        }
     }
 
     private fun mathPanel() {
